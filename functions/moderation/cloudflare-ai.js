@@ -1,12 +1,5 @@
-// Tried in order until one succeeds, so a model being retired by Cloudflare
-// degrades gracefully instead of silently breaking moderation. All entries must
-// share the { prompt, image: [bytes] } input schema. MODERATION_AI_MODEL
-// bypasses this list entirely.
-const DEFAULT_MODELS = [
-    '@cf/meta/llama-3.2-11b-vision-instruct',
-    // Deprecated upstream; kept as a last resort while Cloudflare still serves it.
-    '@cf/llava-hf/llava-1.5-7b-hf',
-];
+import { resolveModerationModels } from './model-registry.js';
+
 // Workers AI receives the raw bytes, so the file does not need to be publicly
 // reachable — this also sidesteps the dead telegra.ph URL the legacy provider
 // depends on. Oversized bodies are skipped instead of buffered.
@@ -32,7 +25,8 @@ export const cloudflareAiProvider = {
             return null;
         }
 
-        const result = await runWithFallback(env, {
+        const models = await resolveModerationModels(env);
+        const result = await runWithFallback(env, models, {
             image: [...new Uint8Array(buffer)],
             prompt: PROMPT,
             max_tokens: 20,
@@ -47,8 +41,9 @@ export const cloudflareAiProvider = {
     },
 };
 
-async function runWithFallback(env, input) {
-    const models = env.MODERATION_AI_MODEL ? [env.MODERATION_AI_MODEL] : DEFAULT_MODELS;
+// Models are tried in order until one succeeds, so a model being retired by
+// Cloudflare degrades gracefully instead of silently breaking moderation.
+async function runWithFallback(env, models, input) {
     let lastError;
 
     for (const model of models) {

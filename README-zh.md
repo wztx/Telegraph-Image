@@ -82,6 +82,7 @@
 | `SHORT_URL_LENGTH`  | `6`                    | 短链接 ID 长度（4-16，默认 6），仅在开启短链接时生效。 |
 | `MODERATION_PROVIDER` | `cloudflare-ai`      | 图片审查服务：`cloudflare-ai`（Workers AI，推荐）、`moderatecontent`（旧版）或 `none`。不设置时自动检测：有 `ModerateContentApiKey` 用 moderatecontent，有 `AI` 绑定用 Workers AI。详见[开启图片审查](#开启图片审查)。 |
 | `MODERATION_AI_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` | `cloudflare-ai` 审查所使用的 Workers AI 模型。不设置时按内置的现役视觉模型降级链依次尝试，Cloudflare 下线某个模型时会自动降级而不是失效。 |
+| `CF_ACCOUNT_ID` / `CF_API_TOKEN` | `abc123` / `token` | 可选，两者同时设置即开启**实时模型发现**：审查模型链改为从 Cloudflare 的现役模型目录实时构建（结果在 KV 中缓存 6 小时），已下线的模型自动剔除、新上线的视觉模型自动加入。Token 只需要 "Workers AI: Read" 一项权限。 |
 | `ModerateContentApiKey` | `abc123`           | 旧版图片审查，值为 [moderatecontent.com](https://moderatecontent.com/) 的 API key。**该服务已停止新用户注册**，新部署请改用 Workers AI。 |
 | `ALLOWED_REFERERS`  | `myblog.com,*.example.com` | 防盗链：允许引用你文件的域名白名单（逗号分隔）。不设置则不限制；空 Referer（直接访问、API 客户端）和你自己的域名始终放行。 |
 | `STORAGE_PROVIDER`  | `telegram`             | 上传文件的存储后端：`telegram`（默认）或 `r2`（需绑定 `img_r2`）。每个文件都会记住自己存在哪里，切换后旧文件依然可以正常加载。 |
@@ -164,6 +165,8 @@
 2. 重新部署即可——存在 `AI` 绑定时审查会自动启用（也可以显式设置 `MODERATION_PROVIDER=cloudflare-ai`）
 
 默认使用 Llama 3.2 Vision 模型（`@cf/meta/llama-3.2-11b-vision-instruct`），可通过 `MODERATION_AI_MODEL` 更换。未指定时会按内置降级链依次尝试——即使 Cloudflare 未来下线了首选模型，审查也会自动落到下一个可用模型而不是直接失效；审查服务全部出错时也不会误伤图片（fail-open，出错放行）。Workers AI 有每日免费额度（10,000 neurons/天），由于每个文件只审查一次，一般完全够用。被判定为成人内容的文件会被屏蔽并跳转到拦截页。
+
+**可选：实时模型发现。**`AI` 绑定只能运行模型、不能列出模型，所以模型链的更新通常依赖本仓库升级。如果不想依赖这一点，可以设置 `CF_ACCOUNT_ID` 和 `CF_API_TOKEN`（只需 "Workers AI: Read" 一项权限的 Token）：审查模型链将改为从 Cloudflare 的[现役模型目录](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/)实时构建——超过下线日期的模型自动剔除，当前在服务的视觉模型自动追加。目录结果在 KV 中缓存 6 小时；目录接口不可用时自动退回内置模型链，行为与不配置时一致。
 
 **旧版方式：moderatecontent.com**
 
