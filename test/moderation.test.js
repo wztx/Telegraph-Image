@@ -110,6 +110,58 @@ describe('moderation providers', function () {
       assert.strictEqual(img_url.snapshot('cat.png').metadata.Label, 'adult');
     });
 
+    it('uses the current llama vision model by default', async function () {
+      const { onRequest } = await import('../functions/file/[id].js');
+      const img_url = createMockKV({ 'cat.png': baseMetadata });
+      const AI = createMockAI('no');
+
+      fetchMock = installFetchMock(async () => new Response('image-body', {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }));
+
+      await onRequest(makeContext({
+        request: new Request('https://example.com/file/cat.png'),
+        env: { img_url, AI },
+        params: { id: 'cat.png' },
+      }));
+
+      assert.strictEqual(AI.calls[0].model, '@cf/meta/llama-3.2-11b-vision-instruct');
+    });
+
+    it('falls back to the next model when the preferred one is unavailable', async function () {
+      const { onRequest } = await import('../functions/file/[id].js');
+      const img_url = createMockKV({ 'cat.png': baseMetadata });
+      const calls = [];
+      const AI = {
+        calls,
+        async run(model, input) {
+          calls.push({ model, input });
+          if (calls.length === 1) {
+            throw new Error('No such model');
+          }
+          return { response: 'no' };
+        },
+      };
+
+      fetchMock = installFetchMock(async () => new Response('image-body', {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }));
+
+      const res = await onRequest(makeContext({
+        request: new Request('https://example.com/file/cat.png'),
+        env: { img_url, AI },
+        params: { id: 'cat.png' },
+      }));
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(calls.length, 2);
+      assert.strictEqual(calls[0].model, '@cf/meta/llama-3.2-11b-vision-instruct');
+      assert.strictEqual(calls[1].model, '@cf/llava-hf/llava-1.5-7b-hf');
+      assert.strictEqual(img_url.snapshot('cat.png').metadata.Label, 'everyone');
+    });
+
     it('honors a custom MODERATION_AI_MODEL', async function () {
       const { onRequest } = await import('../functions/file/[id].js');
       const img_url = createMockKV({ 'cat.png': baseMetadata });

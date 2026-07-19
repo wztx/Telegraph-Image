@@ -81,7 +81,7 @@ Optional environment variables (enable features as needed, see the [Optional Fea
 | `ENABLE_SHORT_URLS` | `true`                    | When enabled (and a KV namespace is bound), uploads return a short link like `/file/AbC123` instead of the long file name. Existing long links keep working. |
 | `SHORT_URL_LENGTH`  | `6`                       | Length of generated short ids (4-16, default 6). Only used when `ENABLE_SHORT_URLS` is on. |
 | `MODERATION_PROVIDER` | `cloudflare-ai`         | Image review provider: `cloudflare-ai` (Workers AI, recommended), `moderatecontent` (legacy), or `none`. When unset, auto-detects: a `ModerateContentApiKey` selects `moderatecontent`, an `AI` binding selects `cloudflare-ai`. See [Enable Image Review](#enable-image-review). |
-| `MODERATION_AI_MODEL` | `@cf/llava-hf/llava-1.5-7b-hf` | Workers AI model used by the `cloudflare-ai` review provider. Defaults to LLaVA 1.5. |
+| `MODERATION_AI_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` | Workers AI model used by the `cloudflare-ai` review provider. When unset, a built-in fallback chain of current vision models is tried in order, so a model being retired by Cloudflare degrades gracefully. |
 | `ModerateContentApiKey` | `abc123`              | Legacy image review via [moderatecontent.com](https://moderatecontent.com/). **The service has stopped accepting new registrations** — new deployments should use Workers AI instead. |
 | `ALLOWED_REFERERS`  | `myblog.com,*.example.com` | Anti-hotlinking: comma-separated list of hostnames allowed to embed your files. Unset = no restriction. Empty referers (direct visits, API clients) and your own domain are always allowed. |
 | `STORAGE_PROVIDER`  | `telegram`                | Where uploaded files are stored: `telegram` (default) or `r2` (requires the `img_r2` binding). Files remain readable regardless of the current setting — each file remembers where it lives. |
@@ -163,7 +163,7 @@ Image review is pluggable. Two providers are built in, and each file is only rev
 1. Open your Pages project, go to `Settings` -> `Functions` -> `Workers AI bindings`, add a binding with the variable name `AI`
 2. Redeploy. That's it — with an `AI` binding present, review is enabled automatically (or set `MODERATION_PROVIDER=cloudflare-ai` explicitly)
 
-The default model is LLaVA 1.5 (`@cf/llava-hf/llava-1.5-7b-hf`); override it with `MODERATION_AI_MODEL`. Workers AI has a free daily allocation (10,000 neurons/day) which is typically plenty, since each image is only reviewed on its first load. Files flagged as adult content are blocked and redirect to the block page; review failures never block an image (fail-open).
+The default model is Llama 3.2 Vision (`@cf/meta/llama-3.2-11b-vision-instruct`); override it with `MODERATION_AI_MODEL`. When no override is set, a built-in fallback chain is tried in order — if Cloudflare ever retires the primary model, review automatically falls through to the next one instead of breaking, and a review failure never blocks an image (fail-open). Workers AI has a free daily allocation (10,000 neurons/day) which is typically plenty, since each image is only reviewed on its first load. Files flagged as adult content are blocked and redirect to the block page.
 
 **Legacy: moderatecontent.com**
 

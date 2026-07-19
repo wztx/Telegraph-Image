@@ -1,4 +1,12 @@
-const DEFAULT_MODEL = '@cf/llava-hf/llava-1.5-7b-hf';
+// Tried in order until one succeeds, so a model being retired by Cloudflare
+// degrades gracefully instead of silently breaking moderation. All entries must
+// share the { prompt, image: [bytes] } input schema. MODERATION_AI_MODEL
+// bypasses this list entirely.
+const DEFAULT_MODELS = [
+    '@cf/meta/llama-3.2-11b-vision-instruct',
+    // Deprecated upstream; kept as a last resort while Cloudflare still serves it.
+    '@cf/llava-hf/llava-1.5-7b-hf',
+];
 // Workers AI receives the raw bytes, so the file does not need to be publicly
 // reachable — this also sidesteps the dead telegra.ph URL the legacy provider
 // depends on. Oversized bodies are skipped instead of buffered.
@@ -24,14 +32,13 @@ export const cloudflareAiProvider = {
             return null;
         }
 
-        const model = env.MODERATION_AI_MODEL || DEFAULT_MODEL;
-        const result = await env.AI.run(model, {
+        const result = await runWithFallback(env, {
             image: [...new Uint8Array(buffer)],
             prompt: PROMPT,
             max_tokens: 20,
         });
 
-        const answer = String(result?.description ?? result?.response ?? '').trim().toLowerCase();
+        const answer = String(result?.response ?? result?.description ?? '').trim().toLowerCase();
         if (!answer) {
             return null;
         }
@@ -39,6 +46,22 @@ export const cloudflareAiProvider = {
         return /\byes\b/.test(answer) ? 'adult' : 'everyone';
     },
 };
+
+async function runWithFallback(env, input) {
+    const models = env.MODERATION_AI_MODEL ? [env.MODERATION_AI_MODEL] : DEFAULT_MODELS;
+    let lastError;
+
+    for (const model of models) {
+        try {
+            return await env.AI.run(model, input);
+        } catch (error) {
+            console.error(`Workers AI model ${model} failed: ${error.message}`);
+            lastError = error;
+        }
+    }
+
+    throw lastError;
+}
 
 function looksLikeImage(response, fileId) {
     const contentType = response.headers.get('Content-Type') || '';

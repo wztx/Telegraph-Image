@@ -81,7 +81,7 @@
 | `ENABLE_SHORT_URLS` | `true`                 | 开启后（需绑定 KV）上传将返回形如 `/file/AbC123` 的短链接，原有长链接依然有效。 |
 | `SHORT_URL_LENGTH`  | `6`                    | 短链接 ID 长度（4-16，默认 6），仅在开启短链接时生效。 |
 | `MODERATION_PROVIDER` | `cloudflare-ai`      | 图片审查服务：`cloudflare-ai`（Workers AI，推荐）、`moderatecontent`（旧版）或 `none`。不设置时自动检测：有 `ModerateContentApiKey` 用 moderatecontent，有 `AI` 绑定用 Workers AI。详见[开启图片审查](#开启图片审查)。 |
-| `MODERATION_AI_MODEL` | `@cf/llava-hf/llava-1.5-7b-hf` | `cloudflare-ai` 审查所使用的 Workers AI 模型，默认为 LLaVA 1.5。 |
+| `MODERATION_AI_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` | `cloudflare-ai` 审查所使用的 Workers AI 模型。不设置时按内置的现役视觉模型降级链依次尝试，Cloudflare 下线某个模型时会自动降级而不是失效。 |
 | `ModerateContentApiKey` | `abc123`           | 旧版图片审查，值为 [moderatecontent.com](https://moderatecontent.com/) 的 API key。**该服务已停止新用户注册**，新部署请改用 Workers AI。 |
 | `ALLOWED_REFERERS`  | `myblog.com,*.example.com` | 防盗链：允许引用你文件的域名白名单（逗号分隔）。不设置则不限制；空 Referer（直接访问、API 客户端）和你自己的域名始终放行。 |
 | `STORAGE_PROVIDER`  | `telegram`             | 上传文件的存储后端：`telegram`（默认）或 `r2`（需绑定 `img_r2`）。每个文件都会记住自己存在哪里，切换后旧文件依然可以正常加载。 |
@@ -163,7 +163,7 @@
 1. 打开 Pages 项目，依次进入`设置`->`函数`->`Workers AI 绑定`，添加一个变量名称为 `AI` 的绑定
 2. 重新部署即可——存在 `AI` 绑定时审查会自动启用（也可以显式设置 `MODERATION_PROVIDER=cloudflare-ai`）
 
-默认使用 LLaVA 1.5 模型（`@cf/llava-hf/llava-1.5-7b-hf`），可通过 `MODERATION_AI_MODEL` 更换。Workers AI 有每日免费额度（10,000 neurons/天），由于每个文件只审查一次，一般完全够用。被判定为成人内容的文件会被屏蔽并跳转到拦截页；审查服务出错时不会误伤图片（fail-open，出错放行）。
+默认使用 Llama 3.2 Vision 模型（`@cf/meta/llama-3.2-11b-vision-instruct`），可通过 `MODERATION_AI_MODEL` 更换。未指定时会按内置降级链依次尝试——即使 Cloudflare 未来下线了首选模型，审查也会自动落到下一个可用模型而不是直接失效；审查服务全部出错时也不会误伤图片（fail-open，出错放行）。Workers AI 有每日免费额度（10,000 neurons/天），由于每个文件只审查一次，一般完全够用。被判定为成人内容的文件会被屏蔽并跳转到拦截页。
 
 **旧版方式：moderatecontent.com**
 
