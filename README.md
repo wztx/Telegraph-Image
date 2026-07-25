@@ -121,6 +121,8 @@ Bindings (`Settings` -> `Functions`):
 
 9. Batch upload with drag & drop and paste support, per-file progress, and one-click copy as URL / Markdown / BBCode / HTML; optional anti-hotlinking via a referer allowlist
 
+10. Deployment self-check: when configuration is incomplete the homepage says which environment variable or binding is missing and where to set it, instead of failing on the first upload
+
 ## Optional Features Guide
 
 ### Image Management Dashboard
@@ -207,11 +209,19 @@ The homepage reads its configuration from `GET /api/config` at load time, so you
   "backgroundImage": "",
   "enableShortUrls": false,
   "uploadRequiresAuth": false,
-  "showAdminEntry": true
+  "showAdminEntry": true,
+  "ready": true,
+  "setup": {
+    "storage": "ok",
+    "storageProvider": "telegram",
+    "dashboard": "unbound",
+    "moderation": "none"
+  },
+  "problems": []
 }
 ```
 
-`enableShortUrls` and `uploadRequiresAuth` reflect the current `ENABLE_SHORT_URLS` and `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` settings, so a frontend can adapt its upload flow (for example, prompt for credentials) without hardcoding them. The response is served with `Cache-Control: no-store`, so changes take effect on the next page load after a redeploy.
+`enableShortUrls` and `uploadRequiresAuth` reflect the current `ENABLE_SHORT_URLS` and `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` settings, so a frontend can adapt its upload flow (for example, prompt for credentials) without hardcoding them. `ready`, `setup` and `problems` come from the deployment self-check that drives the homepage's configuration notice — they carry enum states only (`ok`, `unbound`, `missing-config`, `missing-binding`, `unknown-provider`, ...), never a configured value. The response is served with `Cache-Control: no-store`, so changes take effect on the next page load after a redeploy.
 
 ### Whitelist Mode
 
@@ -294,16 +304,40 @@ No — go to `Deployments` and redeploy once after any change to environment var
 
 ```bash
 npm install
-npm start   # start a local dev server (wrangler pages dev on port 8080; dashboard credentials default to admin/123)
-npm test    # run the unit tests (mocha)
+npm start      # start a local dev server (wrangler pages dev on port 8080; dashboard credentials default to admin/123)
+npm test       # run the unit tests (mocha) — this is what CI runs
 ```
+
+**End-to-end tests** drive a real browser via Playwright. They are an optional suite, so Playwright is deliberately not a project dependency (otherwise every contributor's `npm install` would pull a browser download). Install it once before the first run:
+
+```bash
+npm install --no-save playwright && npx playwright install chromium
+```
+
+Then start a dev server in one terminal and run the suite in another. Prefer `start:r2`, which points storage at a locally simulated R2 bucket so the whole upload path works without any Telegram credentials:
+
+```bash
+npm run start:r2   # terminal 1
+npm run test:e2e   # terminal 2
+```
+
+The end-to-end suite covers batch upload, drag-and-drop, file retrieval and Content-Type, all four output formats, the setup self-check notice, and the dashboard; screenshots land in `test/e2e/output/`. Env vars: `E2E_BASE_URL` (default http://localhost:8080) and `E2E_CHROMIUM` (path to a Chromium binary, for environments where Playwright cannot download its own).
+
+> The dashboard (/admin) loads Vue and Element UI from cdn.jsdelivr.net, so it renders blank where that CDN is unreachable — the end-to-end suite detects this and skips the dashboard check instead of failing.
 
 ### Thanks
 
 Ideas and code provided by Hostloc @feixiang and @乌拉擦
 
 ## Update Log
-July 25, 2026 - Pluggable Storage & Review, New Homepage, Anti-Hotlinking
+July 25, 2026 - Deployment Self-Check and Test Infrastructure
+
+- Added a **deployment self-check**: `GET /api/config` now reports `ready` and `setup` state, and the homepage says which environment variable or binding is missing and where to set it when configuration is incomplete (enum status only, no configured value is echoed back)
+- Added **end-to-end tests** (`npm run test:e2e`, Playwright driving a real browser) covering batch upload, drag-and-drop, file retrieval and Content-Type, all four output formats, the self-check notice, and the dashboard
+- Fixed CI: it used to start a wrangler dev server before running tests even though the tests no longer need one; it now runs the unit tests directly, uses `npm ci`, and also triggers on pushes to main
+- Documented end-to-end test usage and noted that the dashboard depends on cdn.jsdelivr.net (it renders blank where that CDN is unreachable)
+
+July 24, 2026 - Pluggable Storage & Review, New Homepage, Anti-Hotlinking
 
 - **Image review is now pluggable**, with a new built-in provider based on Cloudflare Workers AI (bind `AI`, no external account needed) — moderatecontent.com has stopped accepting registrations and its provider is kept for legacy keys only; review verdicts are now cached per file, so each file is reviewed at most once (#203/#196/#174/#166/#85/#49)
 - **Storage is now pluggable**: `STORAGE_PROVIDER=r2` with an `img_r2` R2 bucket binding stores new uploads in Cloudflare R2, lifting the 20MB serving limit and Telegram rate limits; Telegram remains the default and old files keep loading either way (#181/#118)

@@ -121,6 +121,8 @@
 
 9.批量上传，支持拖拽和粘贴上传、逐文件进度显示，以及 URL / Markdown / BBCode / HTML 四种格式一键复制；可选的 Referer 白名单防盗链
 
+10.部署自检：配置缺失时首页会直接指出缺哪个环境变量或绑定、去哪里补，而不是等到第一次上传才失败
+
 ## 可选功能开启指南
 
 ### 后台图片管理
@@ -207,11 +209,19 @@
   "backgroundImage": "",
   "enableShortUrls": false,
   "uploadRequiresAuth": false,
-  "showAdminEntry": true
+  "showAdminEntry": true,
+  "ready": true,
+  "setup": {
+    "storage": "ok",
+    "storageProvider": "telegram",
+    "dashboard": "unbound",
+    "moderation": "none"
+  },
+  "problems": []
 }
 ```
 
-其中 `enableShortUrls` 和 `uploadRequiresAuth` 反映了当前 `ENABLE_SHORT_URLS` 与 `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` 的配置，前端可据此调整上传流程（例如提示输入账号密码），无需把这些配置硬编码到页面里。该接口响应带有 `Cache-Control: no-store`，重新部署后下一次打开页面即生效。
+其中 `enableShortUrls` 和 `uploadRequiresAuth` 反映了当前 `ENABLE_SHORT_URLS` 与 `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` 的配置，前端可据此调整上传流程（例如提示输入账号密码），无需把这些配置硬编码到页面里。`ready`、`setup`、`problems` 来自驱动首页配置提示的部署自检，只包含状态枚举（`ok`、`unbound`、`missing-config`、`missing-binding`、`unknown-provider` 等），不会回显任何配置值。该接口响应带有 `Cache-Control: no-store`，重新部署后下一次打开页面即生效。
 
 ### 白名单模式
 
@@ -294,16 +304,40 @@ curl -u uploader:strong-password -F "file=@/path/to/image.png" https://your.doma
 
 ```bash
 npm install
-npm start   # 本地启动开发服务（wrangler pages dev，端口 8080，后台账号密码默认为 admin/123）
-npm test    # 运行单元测试（mocha）
+npm start      # 启动本地开发服务（wrangler pages dev，端口 8080，后台账号密码默认为 admin/123）
+npm test       # 运行单元测试（mocha），CI 跑的也是这个
 ```
+
+**端到端测试**：用 Playwright 驱动真实浏览器，属于可选套件，所以 Playwright 没有列入项目依赖（避免所有贡献者的 `npm install` 都去下载浏览器）。首次运行前需自行安装：
+
+```bash
+npm install --no-save playwright && npx playwright install chromium
+```
+
+然后在一个终端启动开发服务，另一个终端跑测试。推荐用 `start:r2`，它把存储后端设为本地模拟的 R2，这样整条上传链路无需任何 Telegram 凭据即可跑通：
+
+```bash
+npm run start:r2   # 终端 1
+npm run test:e2e   # 终端 2
+```
+
+端到端测试会覆盖批量上传、拖拽上传、文件取回与 Content-Type、四种格式输出、配置自检提示和后台页面，截图输出在 `test/e2e/output/`。可用环境变量：`E2E_BASE_URL`（默认 http://localhost:8080）、`E2E_CHROMIUM`（指定 Chromium 可执行文件路径，用于无法下载 Playwright 自带浏览器的环境）。
+
+> 后台页面（/admin）从 cdn.jsdelivr.net 加载 Vue 与 Element UI，因此在无法访问该 CDN 的网络环境下会显示空白——端到端测试检测到这种情况会跳过后台检查而不是报失败。
 
 ### 感谢
 
 Hostloc @feixiang 和@乌拉擦 提供的思路和代码
 
 ## 更新日志
-2026 年 7 月 25 日--可插拔存储与审查、全新首页、防盗链
+2026 年 7 月 25 日--部署自检与测试基建
+
+- 新增**部署自检**：`GET /api/config` 现在会返回 `ready` 与 `setup` 状态，首页在配置不完整时直接显示需要补哪个环境变量/绑定以及在哪里设置（只返回状态枚举，不回显任何配置值）
+- 新增**端到端测试**（`npm run test:e2e`，Playwright 驱动真实浏览器）：覆盖批量上传、拖拽上传、文件取回与 Content-Type、四种输出格式、自检提示与后台页面
+- 修正 CI：此前 CI 会额外启动一个 wrangler 开发服务再跑测试，而测试早已不依赖服务器；现在直接运行单元测试，并改用 `npm ci`，同时对 main 的 push 也会触发
+- 文档补充端到端测试用法，并说明后台页面依赖 cdn.jsdelivr.net（该 CDN 不可达时后台会空白）
+
+2026 年 7 月 24 日--可插拔存储与审查、全新首页、防盗链
 
 - **图片审查改为可插拔架构**，新增基于 Cloudflare Workers AI 的内置审查（绑定 `AI` 即可，无需任何外部账号）——moderatecontent.com 已停止注册，其对应服务仅为存量 key 保留；审查结论现在会按文件缓存，每个文件至多审查一次（#203/#196/#174/#166/#85/#49）
 - **存储改为可插拔架构**：设置 `STORAGE_PROVIDER=r2` 并绑定 `img_r2` R2 存储桶后，新上传的文件存入 Cloudflare R2，摆脱 20MB 加载上限和 Telegram 速率限制；Telegram 仍为默认后端，切换后旧文件照常加载（#181/#118）
