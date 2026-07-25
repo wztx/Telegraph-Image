@@ -166,6 +166,9 @@ Image review is pluggable. Two providers are built in, and each file is only rev
 
 The default model is Llama 3.2 Vision (`@cf/meta/llama-3.2-11b-vision-instruct`); override it with `MODERATION_AI_MODEL`. When no override is set, a built-in fallback chain is tried in order — if Cloudflare ever retires the primary model, review automatically falls through to the next one instead of breaking, and a review failure never blocks an image (fail-open). Workers AI has a free daily allocation (10,000 neurons/day) which is typically plenty, since each image is only reviewed on its first load. Files flagged as adult content are blocked and redirect to the block page.
 
+> [!NOTE]
+> Review only covers images. A file is sent to the model when its `Content-Type` is `image/*` or its extension is one of png / jpg / jpeg / gif / webp / bmp / avif / apng, and images larger than 5MB are skipped rather than buffered in the Function. Video, audio, PDF and other uploads are never reviewed — if every file must be approved before it can load, use [Whitelist Mode](#whitelist-mode) instead.
+
 **Optional: live model discovery.** The `AI` binding can only run models, not list them, so keeping the chain current normally means updating this repo. If you'd rather not depend on that, set `CF_ACCOUNT_ID` and `CF_API_TOKEN` (a token with just the "Workers AI: Read" permission): the review chain is then built from Cloudflare's [live model catalog](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/) — models past their deprecation date are dropped and currently-served vision models are appended automatically. The catalog is cached in KV for 6 hours, and if the catalog API is ever unreachable the built-in chain is used as before.
 
 **Legacy: moderatecontent.com**
@@ -173,7 +176,7 @@ The default model is Llama 3.2 Vision (`@cf/meta/llama-3.2-11b-vision-instruct`)
 > [!WARNING]
 > moderatecontent.com has stopped accepting new registrations. This provider is kept only for deployments that already have a working API key. Note that it can only review files uploaded through the old Telegraph channel (it fetches the image from `telegra.ph`); files uploaded via the Telegram Bot API cannot be reviewed by it — use the Workers AI provider instead.
 
-If you have an existing key, set `ModerateContentApiKey` as before; it keeps working unchanged. To turn review off entirely regardless of other settings, set `MODERATION_PROVIDER=none`.
+If you have an existing key, set `ModerateContentApiKey` as before; it keeps working unchanged. To turn review off entirely regardless of other settings, set `MODERATION_PROVIDER=none`. Note that an unrecognized `MODERATION_PROVIDER` value is treated as `none`, so review silently stays off (the reason is logged) — whereas an unrecognized `STORAGE_PROVIDER` makes uploads fail with a `500`. Double-check the spelling of both.
 
 ### Anti-Hotlinking
 
@@ -188,9 +191,27 @@ By default files are stored on Telegram. To store new uploads in Cloudflare R2 i
 
 Switching is safe at any time: R2 file ids are self-describing (`/file/r2-...`), so previously uploaded Telegram files keep loading even after you switch, and vice versa.
 
+> [!NOTE]
+> Two things to keep in mind with R2:
+> - The 20MB serving limit is gone, but uploads still pass through a Pages Function, so Cloudflare's request body limit (100MB on the Free plan) becomes the effective per-file cap.
+> - Deleting a file in the dashboard removes its KV record and short link, but does **not** remove the object from the R2 bucket, so it keeps counting toward your stored bytes. Remove those from the R2 dashboard or with `wrangler r2 object delete`.
+
 ### Site Customization
 
-The homepage reads its configuration from `GET /api/config` at load time, so you can rebrand without editing any HTML: set `SITE_NAME` (header), `SITE_TITLE` (browser tab), `SITE_BACKGROUND` (background image URL), and `HIDE_ADMIN_ENTRY=true` to hide the dashboard link. The same endpoint is available to any custom frontend you build against this backend.
+The homepage reads its configuration from `GET /api/config` at load time, so you can rebrand without editing any HTML: set `SITE_NAME` (header), `SITE_TITLE` (browser tab), `SITE_BACKGROUND` (background image URL), and `HIDE_ADMIN_ENTRY=true` to hide the dashboard link. The same endpoint is available to any custom frontend you build against this backend, and returns:
+
+```json
+{
+  "siteName": "Telegraph-Image",
+  "siteTitle": "Telegraph-Image | 免费图床",
+  "backgroundImage": "",
+  "enableShortUrls": false,
+  "uploadRequiresAuth": false,
+  "showAdminEntry": true
+}
+```
+
+`enableShortUrls` and `uploadRequiresAuth` reflect the current `ENABLE_SHORT_URLS` and `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` settings, so a frontend can adapt its upload flow (for example, prompt for credentials) without hardcoding them. The response is served with `Cache-Control: no-store`, so changes take effect on the next page load after a redeploy.
 
 ### Whitelist Mode
 
@@ -282,7 +303,7 @@ npm test    # run the unit tests (mocha)
 Ideas and code provided by Hostloc @feixiang and @乌拉擦
 
 ## Update Log
-July 19, 2026 - Pluggable Storage & Review, New Homepage, Anti-Hotlinking
+July 25, 2026 - Pluggable Storage & Review, New Homepage, Anti-Hotlinking
 
 - **Image review is now pluggable**, with a new built-in provider based on Cloudflare Workers AI (bind `AI`, no external account needed) — moderatecontent.com has stopped accepting registrations and its provider is kept for legacy keys only; review verdicts are now cached per file, so each file is reviewed at most once (#203/#196/#174/#166/#85/#49)
 - **Storage is now pluggable**: `STORAGE_PROVIDER=r2` with an `img_r2` R2 bucket binding stores new uploads in Cloudflare R2, lifting the 20MB serving limit and Telegram rate limits; Telegram remains the default and old files keep loading either way (#181/#118)

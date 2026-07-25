@@ -166,6 +166,9 @@
 
 默认使用 Llama 3.2 Vision 模型（`@cf/meta/llama-3.2-11b-vision-instruct`），可通过 `MODERATION_AI_MODEL` 更换。未指定时会按内置降级链依次尝试——即使 Cloudflare 未来下线了首选模型，审查也会自动落到下一个可用模型而不是直接失效；审查服务全部出错时也不会误伤图片（fail-open，出错放行）。Workers AI 有每日免费额度（10,000 neurons/天），由于每个文件只审查一次，一般完全够用。被判定为成人内容的文件会被屏蔽并跳转到拦截页。
 
+> [!NOTE]
+> 审查只覆盖图片：只有 `Content-Type` 为 `image/*`、或扩展名属于 png / jpg / jpeg / gif / webp / bmp / avif / apng 的文件才会送去模型判断，且大于 5MB 的图片会直接跳过（避免在 Function 中缓冲整个文件）。视频、音频、PDF 等其他文件不会被审查——如果你需要所有文件都先审核后才能加载，请改用[白名单模式](#白名单模式)。
+
 **可选：实时模型发现。**`AI` 绑定只能运行模型、不能列出模型，所以模型链的更新通常依赖本仓库升级。如果不想依赖这一点，可以设置 `CF_ACCOUNT_ID` 和 `CF_API_TOKEN`（只需 "Workers AI: Read" 一项权限的 Token）：审查模型链将改为从 Cloudflare 的[现役模型目录](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/)实时构建——超过下线日期的模型自动剔除，当前在服务的视觉模型自动追加。目录结果在 KV 中缓存 6 小时；目录接口不可用时自动退回内置模型链，行为与不配置时一致。
 
 **旧版方式：moderatecontent.com**
@@ -173,7 +176,7 @@
 > [!WARNING]
 > moderatecontent.com 已停止接受新用户注册，此服务仅为已持有可用 API key 的部署保留。另外它只能审查通过旧 Telegraph 通道上传的文件（它需要从 `telegra.ph` 拉取图片），经 Telegram Bot API 上传的文件无法被它审查——请改用 Workers AI。
 
-如果你已有可用的 key，照旧设置 `ModerateContentApiKey` 即可，行为保持不变。如需彻底关闭审查（无视其他配置），设置 `MODERATION_PROVIDER=none`。
+如果你已有可用的 key，照旧设置 `ModerateContentApiKey` 即可，行为保持不变。如需彻底关闭审查（无视其他配置），设置 `MODERATION_PROVIDER=none`。注意：`MODERATION_PROVIDER` 填写了无法识别的值时会按 `none` 处理，即审查静默关闭（原因会记录在日志中）；而 `STORAGE_PROVIDER` 填错则会让上传直接返回 `500`。两者的拼写都请仔细核对。
 
 ### 防盗链
 
@@ -188,9 +191,27 @@
 
 任何时候切换都是安全的：R2 的文件 ID 自带标识（`/file/r2-...`），切换后之前存在 Telegram 的文件依然正常加载，反之亦然。
 
+> [!NOTE]
+> 使用 R2 时需要注意两点：
+> - 20MB 的加载限制不再存在，但上传依然要经过 Pages Function，因此 Cloudflare 的请求体大小限制（免费套餐 100MB）会成为实际的单文件上限。
+> - 在后台删除文件只会删除其 KV 记录和短链接，**不会**删除 R2 存储桶中的对象，该对象仍会占用存储容量。请在 R2 控制台或使用 `wrangler r2 object delete` 手动清理。
+
 ### 站点自定义
 
-首页加载时会从 `GET /api/config` 读取配置，因此无需修改任何 HTML 即可完成个性化：设置 `SITE_NAME`（顶部站点名）、`SITE_TITLE`（浏览器标签页标题）、`SITE_BACKGROUND`（背景图 URL），以及 `HIDE_ADMIN_ENTRY=true` 隐藏后台入口链接。如果你基于本项目后端自行开发前端，也可以直接使用这个接口。
+首页加载时会从 `GET /api/config` 读取配置，因此无需修改任何 HTML 即可完成个性化：设置 `SITE_NAME`（顶部站点名）、`SITE_TITLE`（浏览器标签页标题）、`SITE_BACKGROUND`（背景图 URL），以及 `HIDE_ADMIN_ENTRY=true` 隐藏后台入口链接。如果你基于本项目后端自行开发前端，也可以直接使用这个接口，其返回内容如下：
+
+```json
+{
+  "siteName": "Telegraph-Image",
+  "siteTitle": "Telegraph-Image | 免费图床",
+  "backgroundImage": "",
+  "enableShortUrls": false,
+  "uploadRequiresAuth": false,
+  "showAdminEntry": true
+}
+```
+
+其中 `enableShortUrls` 和 `uploadRequiresAuth` 反映了当前 `ENABLE_SHORT_URLS` 与 `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` 的配置，前端可据此调整上传流程（例如提示输入账号密码），无需把这些配置硬编码到页面里。该接口响应带有 `Cache-Control: no-store`，重新部署后下一次打开页面即生效。
 
 ### 白名单模式
 
@@ -282,7 +303,7 @@ npm test    # 运行单元测试（mocha）
 Hostloc @feixiang 和@乌拉擦 提供的思路和代码
 
 ## 更新日志
-2026 年 7 月 19 日--可插拔存储与审查、全新首页、防盗链
+2026 年 7 月 25 日--可插拔存储与审查、全新首页、防盗链
 
 - **图片审查改为可插拔架构**，新增基于 Cloudflare Workers AI 的内置审查（绑定 `AI` 即可，无需任何外部账号）——moderatecontent.com 已停止注册，其对应服务仅为存量 key 保留；审查结论现在会按文件缓存，每个文件至多审查一次（#203/#196/#174/#166/#85/#49）
 - **存储改为可插拔架构**：设置 `STORAGE_PROVIDER=r2` 并绑定 `img_r2` R2 存储桶后，新上传的文件存入 Cloudflare R2，摆脱 20MB 加载上限和 Telegram 速率限制；Telegram 仍为默认后端，切换后旧文件照常加载（#181/#118）
