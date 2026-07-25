@@ -21,7 +21,7 @@ export const r2Provider = {
             },
         });
 
-        return id;
+        return { id };
     },
 
     async fetchFile(env, request, url, fileId) {
@@ -47,7 +47,7 @@ export const r2Provider = {
 
     // Without the binding the object is unreachable for us, so the caller should
     // drop the record rather than block on something it can never do.
-    canDelete(env) {
+    canDelete(env, _metadata) {
         return Boolean(env.img_r2);
     },
 

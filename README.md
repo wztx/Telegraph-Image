@@ -135,7 +135,7 @@ Disabled by default. To enable: in the Cloudflare Pages backend, click `Settings
 
 The dashboard supports: total image count, filename search, paginated loading, online preview, rename, blacklist/whitelist management, record deletion, and grid/waterfall views. See the [Update Log](#update-log) for detailed descriptions and screenshots of each feature.
 
-Note: what the dashboard "delete" action removes depends on where the file lives. Files stored in [R2](#r2-storage) are deleted from the bucket along with the record; files stored on Telegram cannot be deleted (no message id is kept), so only the record goes away. To prevent a file from loading either way, use the blacklist feature.
+Note: the dashboard "delete" action removes the stored file, not just the record. Files in [R2](#r2-storage) are deleted from the bucket; files on Telegram have their channel message deleted, which requires the bot to still be an administrator of the channel with permission to delete messages. Two caveats: files uploaded before this behavior existed have no recorded message id, so only their record can be removed; and Telegram may keep serving a deleted message's file by its `file_id` for some time, so use the blacklist feature when you need to be certain a file stops loading.
 
 #### Dashboard Login
 
@@ -334,9 +334,9 @@ The end-to-end suite covers batch upload, drag-and-drop, file retrieval and Cont
 Ideas and code provided by Hostloc @feixiang and @乌拉擦
 
 ## Update Log
-July 25, 2026 - R2 Deletion Fix and Bilingual Setup Messages
+July 25, 2026 - Deletion Now Removes the Stored File, Bilingual Setup Messages
 
-- **Fixed: deleting a file in the dashboard left the object in the R2 bucket.** Only the KV record was removed, so the object stayed billable with nothing pointing at it. Deletes now go through the storage provider: R2 objects are removed with the record, while Telegram files behave as before (they cannot be deleted, no message id is kept). If the bucket delete fails the record is kept so the delete can be retried
+- **Fixed: deleting a file in the dashboard left the stored file behind.** Only the KV record was removed, so an R2 object stayed billable with nothing pointing at it and a Telegram channel message stayed in the channel. Deletes now go through the storage provider: R2 objects are removed from the bucket, and Telegram uploads record their channel `message_id` so the message can be deleted too (the bot must still be a channel administrator allowed to delete messages). A failed R2 delete keeps the record so it can be retried; a failed Telegram delete does not, since the message may simply be gone already. Files uploaded before this change have no recorded message id, so only their record can be removed
 - **Setup messages are now bilingual.** The deployment self-check used to answer in Chinese only, so English deployments got Chinese diagnostics. `/api/config` now negotiates the language (`?lang=`, then the new `SITE_LANG`, then `Accept-Language`, then `zh`) and echoes it back as `locale`; each problem also carries a stable `code` and `params` so a custom frontend can supply its own wording
 - The dashboard delete confirmation now states what is actually removed for each storage backend
 

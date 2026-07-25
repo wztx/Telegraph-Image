@@ -4,14 +4,18 @@ import { r2Provider } from './r2.js';
 // Storage provider contract:
 //   key                                       - tag persisted in KV metadata for provenance
 //   validateConfig(env)                       - throws when required bindings/vars are missing
-//   upload(env, file, { fileName, fileExtension }) -> long file id (string)
+//   upload(env, file, { fileName, fileExtension })
+//     -> { id, metadata? } where id is the long file id and metadata holds
+//        provider-specific fields to persist (Telegram: the channel message id)
 //   fetchFile(env, request, url, fileId)      -> Response with the file body
-//   deleteFile(env, fileId)                   - optional; absent when the backend
-//     cannot remove a stored file (Telegram: no message id is kept, so the
-//     dashboard can only drop the record)
-//   canDelete(env)                            - required alongside deleteFile;
-//     false when this deployment could never delete (e.g. the bucket binding was
-//     removed), so the caller drops the record instead of blocking forever
+//   deleteFile(env, fileId, metadata)         - remove the stored file
+//   canDelete(env, metadata)                  - false when this deployment could
+//     never delete this file (bucket binding removed, or a Telegram file stored
+//     before message ids were recorded), so the caller drops the record instead
+//     of blocking on something it can never do
+//   bestEffortDelete                          - optional; when true a failed
+//     delete is logged and the record is still removed, because the stored file
+//     costs the deployment nothing and may already be gone
 const PROVIDERS = {
     [telegramProvider.key]: telegramProvider,
     [r2Provider.key]: r2Provider,

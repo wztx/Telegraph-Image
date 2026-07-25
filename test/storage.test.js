@@ -206,10 +206,57 @@ describe('storage providers', function () {
       );
     });
 
-    it('exposes no delete for telegram, whose files cannot be removed', async function () {
+    it('deletes the channel message for a telegram file', async function () {
       const { getServingProvider } = await import('../functions/storage/index.js');
+      fetchMock = installFetchMock(async () => new Response(
+        JSON.stringify({ ok: true, result: true }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ));
 
-      assert.strictEqual(getServingProvider('BQACAgEAAxkDAAIB.png').deleteFile, undefined);
+      await getServingProvider('BQACAgEAAxkDAAIB.png').deleteFile(
+        { TG_Bot_Token: 'token', TG_Chat_ID: '-100200' },
+        'BQACAgEAAxkDAAIB.png',
+        { messageId: 4321 },
+      );
+
+      assert.strictEqual(fetchMock.calls.length, 1);
+      assert.ok(fetchMock.calls[0].url.endsWith('/bottoken/deleteMessage'), fetchMock.calls[0].url);
+      const body = fetchMock.calls[0].init.body;
+      assert.strictEqual(body.get('chat_id'), '-100200');
+      assert.strictEqual(body.get('message_id'), '4321');
+    });
+
+    it('surfaces a refused telegram delete as an error', async function () {
+      const { telegramProvider } = await import('../functions/storage/telegram.js');
+      fetchMock = installFetchMock(async () => new Response(
+        JSON.stringify({ ok: false, description: "message can't be deleted" }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ));
+
+      await assert.rejects(
+        () => telegramProvider.deleteFile(
+          { TG_Bot_Token: 'token', TG_Chat_ID: '-1' },
+          'file.png',
+          { messageId: 7 },
+        ),
+        /can't be deleted/,
+      );
+    });
+
+    it('cannot delete a telegram file stored before message ids were recorded', async function () {
+      const { telegramProvider } = await import('../functions/storage/telegram.js');
+
+      assert.strictEqual(telegramProvider.canDelete({}, {}), false);
+      assert.strictEqual(telegramProvider.canDelete({}, null), false);
+      assert.strictEqual(telegramProvider.canDelete({}, { messageId: 12 }), true);
+    });
+
+    it('treats a telegram delete as best effort, unlike r2', async function () {
+      const { telegramProvider } = await import('../functions/storage/telegram.js');
+      const { r2Provider } = await import('../functions/storage/r2.js');
+
+      assert.strictEqual(telegramProvider.bestEffortDelete, true);
+      assert.ok(!r2Provider.bestEffortDelete);
     });
   });
 });

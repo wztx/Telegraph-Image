@@ -9,25 +9,30 @@ export async function onRequest(context) {
     const metadata = await getMetadata(env, params.id);
     const provider = getServingProvider(params.id);
 
-    // Remove the stored file first when the backend supports it: dropping only
-    // the KV record would leave an R2 object unreachable through the dashboard
-    // but still billed as stored bytes.
+    // Remove the stored file first: dropping only the KV record would leave an R2
+    // object unreachable through the dashboard but still billed as stored bytes,
+    // or a Telegram channel message for a file nobody can find any more.
     //
-    // A binding that is gone (switched back to Telegram, say) means the object is
-    // out of reach for good, so the record is dropped anyway rather than leaving
-    // an undeletable row. A delete that merely fails is treated as retryable: the
-    // record stays so the row remains visible and the user can try again.
-    if (provider.deleteFile && !provider.canDelete(env)) {
-        console.error(`Cannot delete ${params.id} from ${provider.key}: binding unavailable, removing the record only`);
-    } else if (provider.deleteFile) {
+    // When the provider says it could never delete this file (bucket binding
+    // removed, or a Telegram file predating recorded message ids) the record is
+    // dropped anyway, so the row cannot become permanently undeletable.
+    if (!provider.canDelete(env, metadata)) {
+        console.error(`Cannot delete ${params.id} from ${provider.key}: nothing to delete against, removing the record only`);
+    } else {
         try {
-            await provider.deleteFile(env, params.id);
+            await provider.deleteFile(env, params.id, metadata);
         } catch (error) {
             console.error(`Failed to delete ${params.id} from ${provider.key}: ${error.message}`);
-            return jsonResponse(
-                { error: `Failed to delete the stored file: ${error.message}` },
-                { status: 500 },
-            );
+
+            // R2 objects cost money and are ours to remove, so a failure is
+            // retryable and the record stays. A Telegram message costs the
+            // deployment nothing and may already be gone, so the record goes.
+            if (!provider.bestEffortDelete) {
+                return jsonResponse(
+                    { error: `Failed to delete the stored file: ${error.message}` },
+                    { status: 500 },
+                );
+            }
         }
     }
 
