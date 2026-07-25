@@ -90,6 +90,7 @@ Optional environment variables (enable features as needed, see the [Optional Fea
 | `SITE_TITLE`        | `My Images \| Home`       | Browser tab title of the homepage.                                                    |
 | `SITE_BACKGROUND`   | `https://.../bg.jpg`      | Background image URL for the homepage.                                                |
 | `HIDE_ADMIN_ENTRY`  | `true`                    | Hides the dashboard link on the homepage (the /admin page itself stays reachable).    |
+| `SITE_LANG`         | `en`                      | Language for the setup messages returned by `/api/config`: `en` or `zh`. Unset means each visitor's own `Accept-Language` decides, falling back to `zh`. See [Site Customization](#site-customization). |
 | `WhiteList_Mode`    | `true`                    | Whitelist mode: only whitelisted images can be loaded.                                |
 | `disable_telemetry` | `true`                    | Opt out of remote telemetry.                                                          |
 
@@ -134,7 +135,7 @@ Disabled by default. To enable: in the Cloudflare Pages backend, click `Settings
 
 The dashboard supports: total image count, filename search, paginated loading, online preview, rename, blacklist/whitelist management, record deletion, and grid/waterfall views. See the [Update Log](#update-log) for detailed descriptions and screenshots of each feature.
 
-Note: the dashboard "delete" action only removes the record from the list; it does not delete the source file from Telegram. To prevent a file from loading, use the blacklist feature.
+Note: what the dashboard "delete" action removes depends on where the file lives. Files stored in [R2](#r2-storage) are deleted from the bucket along with the record; files stored on Telegram cannot be deleted (no message id is kept), so only the record goes away. To prevent a file from loading either way, use the blacklist feature.
 
 #### Dashboard Login
 
@@ -196,7 +197,7 @@ Switching is safe at any time: R2 file ids are self-describing (`/file/r2-...`),
 > [!NOTE]
 > Two things to keep in mind with R2:
 > - The 20MB serving limit is gone, but uploads still pass through a Pages Function, so Cloudflare's request body limit (100MB on the Free plan) becomes the effective per-file cap.
-> - Deleting a file in the dashboard removes its KV record and short link, but does **not** remove the object from the R2 bucket, so it keeps counting toward your stored bytes. Remove those from the R2 dashboard or with `wrangler r2 object delete`.
+> - Deleting a file in the dashboard removes the object from the R2 bucket as well as its KV record and short link, so it stops counting toward your stored bytes. If the bucket delete fails the record is kept on purpose, so the row stays in the dashboard and you can retry instead of being left with an object nothing points at.
 
 ### Site Customization
 
@@ -217,11 +218,14 @@ The homepage reads its configuration from `GET /api/config` at load time, so you
     "dashboard": "unbound",
     "moderation": "none"
   },
-  "problems": []
+  "problems": [],
+  "locale": "en"
 }
 ```
 
-`enableShortUrls` and `uploadRequiresAuth` reflect the current `ENABLE_SHORT_URLS` and `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` settings, so a frontend can adapt its upload flow (for example, prompt for credentials) without hardcoding them. `ready`, `setup` and `problems` come from the deployment self-check that drives the homepage's configuration notice — they carry enum states only (`ok`, `unbound`, `missing-config`, `missing-binding`, `unknown-provider`, ...), never a configured value. The response is served with `Cache-Control: no-store`, so changes take effect on the next page load after a redeploy.
+`enableShortUrls` and `uploadRequiresAuth` reflect the current `ENABLE_SHORT_URLS` and `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` settings, so a frontend can adapt its upload flow (for example, prompt for credentials) without hardcoding them. `ready`, `setup` and `problems` come from the deployment self-check that drives the homepage's configuration notice — they carry enum states only (`ok`, `unbound`, `missing-config`, `missing-binding`, `unknown-provider`, ...), never a configured value. Each problem also carries a stable `code` (`storage-missing-config`, `dashboard-unbound`, ...) and its `params`, so a custom frontend can write its own wording instead of displaying ours. The response is served with `Cache-Control: no-store`, so changes take effect on the next page load after a redeploy.
+
+**Message language.** The setup messages are available in English and Chinese, resolved in this order: a `?lang=en` / `?lang=zh` query parameter, then `SITE_LANG`, then the visitor's `Accept-Language` header, then `zh`. The negotiated language is echoed back as `locale` so a frontend can label the messages in a matching language. Set `SITE_LANG` when your deployment serves one audience regardless of browser settings; leave it unset to let each visitor's browser decide.
 
 ### Whitelist Mode
 
@@ -330,6 +334,12 @@ The end-to-end suite covers batch upload, drag-and-drop, file retrieval and Cont
 Ideas and code provided by Hostloc @feixiang and @乌拉擦
 
 ## Update Log
+July 25, 2026 - R2 Deletion Fix and Bilingual Setup Messages
+
+- **Fixed: deleting a file in the dashboard left the object in the R2 bucket.** Only the KV record was removed, so the object stayed billable with nothing pointing at it. Deletes now go through the storage provider: R2 objects are removed with the record, while Telegram files behave as before (they cannot be deleted, no message id is kept). If the bucket delete fails the record is kept so the delete can be retried
+- **Setup messages are now bilingual.** The deployment self-check used to answer in Chinese only, so English deployments got Chinese diagnostics. `/api/config` now negotiates the language (`?lang=`, then the new `SITE_LANG`, then `Accept-Language`, then `zh`) and echoes it back as `locale`; each problem also carries a stable `code` and `params` so a custom frontend can supply its own wording
+- The dashboard delete confirmation now states what is actually removed for each storage backend
+
 July 25, 2026 - Deployment Self-Check and Test Infrastructure
 
 - Added a **deployment self-check**: `GET /api/config` now reports `ready` and `setup` state, and the homepage says which environment variable or binding is missing and where to set it when configuration is incomplete (enum status only, no configured value is echoed back)

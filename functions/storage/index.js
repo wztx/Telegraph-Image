@@ -6,6 +6,12 @@ import { r2Provider } from './r2.js';
 //   validateConfig(env)                       - throws when required bindings/vars are missing
 //   upload(env, file, { fileName, fileExtension }) -> long file id (string)
 //   fetchFile(env, request, url, fileId)      -> Response with the file body
+//   deleteFile(env, fileId)                   - optional; absent when the backend
+//     cannot remove a stored file (Telegram: no message id is kept, so the
+//     dashboard can only drop the record)
+//   canDelete(env)                            - required alongside deleteFile;
+//     false when this deployment could never delete (e.g. the bucket binding was
+//     removed), so the caller drops the record instead of blocking forever
 const PROVIDERS = {
     [telegramProvider.key]: telegramProvider,
     [r2Provider.key]: r2Provider,

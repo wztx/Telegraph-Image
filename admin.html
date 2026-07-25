@@ -167,7 +167,7 @@
       },
       handleDelete(index, key) {
         console.log(key);
-        if (confirm("确认从后台列表删除该记录吗？这不会删除源文件；如需禁止访问请加入黑名单。")) {
+        if (confirm("确认删除该记录吗？存储在 R2 的文件会同时从存储桶中删除，Telegram 上的源文件无法删除；如需禁止访问请加入黑名单。")) {
           console.log("Yes")
           var requestOptions = {
             method: 'GET',

@@ -68,6 +68,59 @@ describe('manage API functions', function () {
     assert.strictEqual(img_url.snapshot('cat.png'), undefined);
   });
 
+  it('deletes the R2 object along with the record', async function () {
+    const { onRequest } = await import('../functions/api/manage/delete/[id].js');
+    const id = 'r2-0123456789abcdef0123456789abcdef.png';
+    const img_url = createMockKV({ [id]: { ...baseMetadata, fileName: id, provider: 'r2' } });
+    const deleted = [];
+    const img_r2 = { async delete(key) { deleted.push(key); } };
+
+    const res = await onRequest(makeContext({ env: { img_url, img_r2 }, params: { id } }));
+
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(deleted, [id], 'the bucket object must be removed too');
+    assert.strictEqual(img_url.snapshot(id), undefined);
+  });
+
+  it('keeps the record when the R2 object cannot be deleted, so it can be retried', async function () {
+    const { onRequest } = await import('../functions/api/manage/delete/[id].js');
+    const id = 'r2-0123456789abcdef0123456789abcdef.png';
+    const img_url = createMockKV({ [id]: { ...baseMetadata, fileName: id } });
+    const img_r2 = { async delete() { throw new Error('bucket unavailable'); } };
+
+    const res = await onRequest(makeContext({ env: { img_url, img_r2 }, params: { id } }));
+
+    assert.strictEqual(res.status, 500);
+    assert.ok(img_url.snapshot(id), 'the record must survive a failed object delete');
+    assert.deepStrictEqual(img_url.operations.delete, []);
+  });
+
+  it('still removes the record when the bucket binding is gone', async function () {
+    const { onRequest } = await import('../functions/api/manage/delete/[id].js');
+    const id = 'r2-0123456789abcdef0123456789abcdef.png';
+    const img_url = createMockKV({ [id]: { ...baseMetadata, fileName: id } });
+
+    // img_r2 unbound: the object is unreachable for good, so the row must not
+    // become permanently undeletable
+    const res = await onRequest(makeContext({ env: { img_url }, params: { id } }));
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(img_url.snapshot(id), undefined);
+  });
+
+  it('leaves Telegram-stored files alone, since they cannot be deleted', async function () {
+    const { onRequest } = await import('../functions/api/manage/delete/[id].js');
+    const img_url = createMockKV({ 'cat.png': baseMetadata });
+
+    const res = await onRequest(makeContext({
+      env: { img_url, img_r2: { async delete() { throw new Error('must not touch r2'); } } },
+      params: { id: 'cat.png' },
+    }));
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(img_url.snapshot('cat.png'), undefined);
+  });
+
   it('removes the short link mapping when deleting a record', async function () {
     const { onRequest } = await import('../functions/api/manage/delete/[id].js');
     const img_url = createMockKV({

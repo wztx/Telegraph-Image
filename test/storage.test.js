@@ -3,11 +3,15 @@ const { createMockKV, installFetchMock, makeContext, muteConsole } = require('./
 
 function createMockR2() {
   const store = new Map();
-  const operations = { put: [], get: [] };
+  const operations = { put: [], get: [], delete: [] };
 
   return {
     store,
     operations,
+    async delete(key) {
+      operations.delete.push(key);
+      store.delete(key);
+    },
     async put(key, value, options = {}) {
       operations.put.push({ key, options });
       store.set(key, { value, options });
@@ -177,6 +181,35 @@ describe('storage providers', function () {
       }));
 
       assert.strictEqual(res.status, 404);
+    });
+  });
+
+  describe('deleting stored files', function () {
+    it('removes the object from the bucket for r2 ids', async function () {
+      const { getServingProvider } = await import('../functions/storage/index.js');
+      const img_r2 = createMockR2();
+      const id = 'r2-0123456789abcdef0123456789abcdef.png';
+      await img_r2.put(id, 'bytes');
+
+      await getServingProvider(id).deleteFile({ img_r2 }, id);
+
+      assert.deepStrictEqual(img_r2.operations.delete, [id]);
+      assert.strictEqual(img_r2.store.has(id), false);
+    });
+
+    it('reports a missing bucket binding instead of failing silently', async function () {
+      const { r2Provider } = await import('../functions/storage/r2.js');
+
+      await assert.rejects(
+        () => r2Provider.deleteFile({}, 'r2-abc.png'),
+        /img_r2/,
+      );
+    });
+
+    it('exposes no delete for telegram, whose files cannot be removed', async function () {
+      const { getServingProvider } = await import('../functions/storage/index.js');
+
+      assert.strictEqual(getServingProvider('BQACAgEAAxkDAAIB.png').deleteFile, undefined);
     });
   });
 });

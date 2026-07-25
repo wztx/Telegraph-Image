@@ -90,6 +90,7 @@
 | `SITE_TITLE`        | `My Images \| Home`    | 首页的浏览器标签页标题。 |
 | `SITE_BACKGROUND`   | `https://.../bg.jpg`   | 首页背景图 URL。 |
 | `HIDE_ADMIN_ENTRY`  | `true`                 | 隐藏首页上的后台入口链接（/admin 页面本身仍可访问）。 |
+| `SITE_LANG`         | `en`                   | `/api/config` 返回的部署自检提示所使用的语言：`en` 或 `zh`。不设置时由访问者自己的 `Accept-Language` 决定，都不匹配则回退到 `zh`。详见[站点自定义](#站点自定义)。 |
 | `WhiteList_Mode`    | `true`                 | 白名单模式：只有加入白名单的图片才能被加载。 |
 | `disable_telemetry` | `true`                 | 退出远端遥测。 |
 
@@ -134,7 +135,7 @@
 
 后台支持：图片总数统计、按文件名搜索、分页加载、在线预览、重命名、黑白名单管理、删除记录、网格与瀑布流视图等。各功能的详细说明与截图见[更新日志](#更新日志)。
 
-注意：后台的"删除"只会从列表中移除记录，不会删除 Telegram 上的源文件；如需禁止某个文件加载，请使用黑名单功能。
+注意：后台"删除"具体删掉什么，取决于文件存在哪里。存储在 [R2](#r2-存储) 的文件会连同记录一起从存储桶中删除；存储在 Telegram 的文件无法删除（没有保存 message id），因此只会移除记录。两种情况下如需禁止某个文件加载，都请使用黑名单功能。
 
 #### 后台登录验证
 
@@ -196,7 +197,7 @@
 > [!NOTE]
 > 使用 R2 时需要注意两点：
 > - 20MB 的加载限制不再存在，但上传依然要经过 Pages Function，因此 Cloudflare 的请求体大小限制（免费套餐 100MB）会成为实际的单文件上限。
-> - 在后台删除文件只会删除其 KV 记录和短链接，**不会**删除 R2 存储桶中的对象，该对象仍会占用存储容量。请在 R2 控制台或使用 `wrangler r2 object delete` 手动清理。
+> - 在后台删除文件时，除 KV 记录和短链接外，R2 存储桶中的对象也会一并删除，不再占用存储容量。如果存储桶删除失败，记录会被特意保留，以便你在后台重试，而不是留下一个没有任何记录指向的对象。
 
 ### 站点自定义
 
@@ -217,11 +218,14 @@
     "dashboard": "unbound",
     "moderation": "none"
   },
-  "problems": []
+  "problems": [],
+  "locale": "zh"
 }
 ```
 
-其中 `enableShortUrls` 和 `uploadRequiresAuth` 反映了当前 `ENABLE_SHORT_URLS` 与 `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` 的配置，前端可据此调整上传流程（例如提示输入账号密码），无需把这些配置硬编码到页面里。`ready`、`setup`、`problems` 来自驱动首页配置提示的部署自检，只包含状态枚举（`ok`、`unbound`、`missing-config`、`missing-binding`、`unknown-provider` 等），不会回显任何配置值。该接口响应带有 `Cache-Control: no-store`，重新部署后下一次打开页面即生效。
+其中 `enableShortUrls` 和 `uploadRequiresAuth` 反映了当前 `ENABLE_SHORT_URLS` 与 `UPLOAD_BASIC_USER` / `UPLOAD_BASIC_PASS` 的配置，前端可据此调整上传流程（例如提示输入账号密码），无需把这些配置硬编码到页面里。`ready`、`setup`、`problems` 来自驱动首页配置提示的部署自检，只包含状态枚举（`ok`、`unbound`、`missing-config`、`missing-binding`、`unknown-provider` 等），不会回显任何配置值。每条 problem 还带有稳定的 `code`（`storage-missing-config`、`dashboard-unbound` 等）与对应的 `params`，自建前端可以据此使用自己的文案，而不必直接显示本项目的措辞。该接口响应带有 `Cache-Control: no-store`，重新部署后下一次打开页面即生效。
+
+**提示语言。** 部署自检提示提供中英两种语言，按以下顺序确定：`?lang=en` / `?lang=zh` 查询参数、`SITE_LANG`、访问者的 `Accept-Language` 请求头，最后回退到 `zh`。最终选用的语言会通过 `locale` 字段返回，前端可据此让自己的标签文案与提示语言保持一致。如果你的站点只面向单一语言的用户（无论访问者浏览器如何设置），请设置 `SITE_LANG`；想让每位访问者的浏览器自行决定，则保持不设置。
 
 ### 白名单模式
 
@@ -330,6 +334,12 @@ npm run test:e2e   # 终端 2
 Hostloc @feixiang 和@乌拉擦 提供的思路和代码
 
 ## 更新日志
+2026 年 7 月 25 日--修复 R2 删除残留、自检提示支持中英双语
+
+- **修复：后台删除文件后，R2 存储桶中的对象没有被删除。** 此前只删除了 KV 记录，对象仍然占用存储容量却没有任何记录指向它。现在删除操作会经过存储后端：R2 的对象会随记录一起删除，Telegram 的文件行为不变（没有保存 message id，无法删除）。若存储桶删除失败，记录会被保留以便重试
+- **部署自检提示支持中英双语。** 此前提示只有中文，英文部署会看到中文诊断信息。`/api/config` 现在会协商语言（依次为 `?lang=`、新增的 `SITE_LANG`、`Accept-Language`，最后回退 `zh`）并通过 `locale` 字段返回；每条 problem 还带有稳定的 `code` 与 `params`，自建前端可以使用自己的文案
+- 后台删除确认弹窗现在会说明不同存储后端下实际会删除哪些内容
+
 2026 年 7 月 25 日--部署自检与测试基建
 
 - 新增**部署自检**：`GET /api/config` 现在会返回 `ready` 与 `setup` 状态，首页在配置不完整时直接显示需要补哪个环境变量/绑定以及在哪里设置（只返回状态枚举，不回显任何配置值）

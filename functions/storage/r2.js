@@ -45,6 +45,23 @@ export const r2Provider = {
         return new Response(object.body, { status: 200, headers });
     },
 
+    // Without the binding the object is unreachable for us, so the caller should
+    // drop the record rather than block on something it can never do.
+    canDelete(env) {
+        return Boolean(env.img_r2);
+    },
+
+    // Unlike Telegram, R2 objects are ours to remove — and they keep costing
+    // stored bytes until they are, so deleting the KV record is not enough.
+    // R2 deletes are idempotent, so removing an already-missing key is fine.
+    async deleteFile(env, fileId) {
+        if (!env.img_r2) {
+            throw new Error('R2 bucket binding (img_r2) is not configured');
+        }
+
+        await env.img_r2.delete(fileId);
+    },
+
     ownsId(fileId) {
         return typeof fileId === 'string' && fileId.startsWith(R2_ID_PREFIX);
     },
