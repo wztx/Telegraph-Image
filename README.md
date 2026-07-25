@@ -121,6 +121,8 @@ Bindings (`Settings` -> `Functions`):
 
 9. Batch upload with drag & drop and paste support, per-file progress, and one-click copy as URL / Markdown / BBCode / HTML; optional anti-hotlinking via a referer allowlist
 
+10. Deployment self-check: when configuration is incomplete the homepage says which environment variable or binding is missing and where to set it, instead of failing on the first upload
+
 ## Optional Features Guide
 
 ### Image Management Dashboard
@@ -294,9 +296,26 @@ No — go to `Deployments` and redeploy once after any change to environment var
 
 ```bash
 npm install
-npm start   # start a local dev server (wrangler pages dev on port 8080; dashboard credentials default to admin/123)
-npm test    # run the unit tests (mocha)
+npm start      # start a local dev server (wrangler pages dev on port 8080; dashboard credentials default to admin/123)
+npm test       # run the unit tests (mocha) — this is what CI runs
 ```
+
+**End-to-end tests** drive a real browser via Playwright. They are an optional suite, so Playwright is deliberately not a project dependency (otherwise every contributor's `npm install` would pull a browser download). Install it once before the first run:
+
+```bash
+npm install --no-save playwright && npx playwright install chromium
+```
+
+Then start a dev server in one terminal and run the suite in another. Prefer `start:r2`, which points storage at a locally simulated R2 bucket so the whole upload path works without any Telegram credentials:
+
+```bash
+npm run start:r2   # terminal 1
+npm run test:e2e   # terminal 2
+```
+
+The end-to-end suite covers batch upload, drag-and-drop, file retrieval and Content-Type, all four output formats, the setup self-check notice, and the dashboard; screenshots land in `test/e2e/output/`. Env vars: `E2E_BASE_URL` (default http://localhost:8080) and `E2E_CHROMIUM` (path to a Chromium binary, for environments where Playwright cannot download its own).
+
+> The dashboard (/admin) loads Vue and Element UI from cdn.jsdelivr.net, so it renders blank where that CDN is unreachable — the end-to-end suite detects this and skips the dashboard check instead of failing.
 
 ### Thanks
 
